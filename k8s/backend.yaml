@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: recsys
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: recsys-backend:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow:5000"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: recsys
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP

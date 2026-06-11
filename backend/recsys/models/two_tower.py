@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
+from ..vector_store import VectorStore
 from .base import BaseRecommender, Recommendation
 
 
@@ -133,6 +134,9 @@ class TwoTowerRecommender(BaseRecommender):
         genre_col: str | None = None,
         device: str = "cpu",
         seed: int = 42,
+        use_vector_store: bool = False,
+        qdrant_host: str = "localhost",
+        qdrant_port: int = 6333,
     ) -> None:
         self.embed_dim = embed_dim
         self.mlp_dims = mlp_dims
@@ -144,6 +148,7 @@ class TwoTowerRecommender(BaseRecommender):
         self.genre_col = genre_col
         self.device = device
         self.seed = seed
+        self.use_vector_store = use_vector_store
 
         self._model: nn.Module | None = None
         self._u_idx: dict = {}
@@ -153,6 +158,9 @@ class TwoTowerRecommender(BaseRecommender):
         self._user_seen: dict = {}
         self._item_genres_np: np.ndarray | None = None
         self._all_item_vecs: torch.Tensor | None = None
+        self._vector_store: VectorStore | None = None
+        self._qdrant_host = qdrant_host
+        self._qdrant_port = qdrant_port
 
     def _build_indices(self, interactions: pd.DataFrame) -> None:
         users = interactions["user_id"].unique()
@@ -281,6 +289,10 @@ class TwoTowerRecommender(BaseRecommender):
                     chunks.append(self._model["item"](ids, g_ids, g_off).cpu())
                 vecs = torch.cat(chunks, dim=0)
         self._all_item_vecs = vecs
+        if self.use_vector_store:
+            self._vector_store = VectorStore(host=self._qdrant_host, port=self._qdrant_port)
+            payloads = [{"item_id": str(iid)} for iid in self._item_ids]
+            self._vector_store.index_item_vectors(self._item_ids, vecs.numpy(), payloads)
 
     def recommend(
         self,
@@ -288,7 +300,11 @@ class TwoTowerRecommender(BaseRecommender):
         k: int = 10,
         exclude_seen: bool = True,
     ) -> list[Recommendation]:
-        if user_id not in self._u_idx or self._model is None or self._all_item_vecs is None:
+        if user_id not in self._u_idx or self._model is None:
+            return []
+        if self.use_vector_store and self._vector_store is not None:
+            return self._recommend_via_vector_store(user_id, k, exclude_seen)
+        if self._all_item_vecs is None:
             return []
         device = torch.device(self.device)
         u = self._u_idx[user_id]
@@ -316,3 +332,59 @@ class TwoTowerRecommender(BaseRecommender):
             for i in top
             if np.isfinite(scores[i])
         ]
+
+    def _recommend_via_vector_store(
+        self,
+        user_id: int | str,
+        k: int = 10,
+        exclude_seen: bool = True,
+    ) -> list[Recommendation]:
+        assert self._vector_store is not None
+        device = torch.device(self.device)
+        u = self._u_idx[user_id]
+        hist = self._user_history.get(u, [])
+        if len(hist) > self.max_history:
+            hist = hist[-self.max_history:]
+        padded = [0] * (self.max_history - len(hist)) + [h + 1 for h in hist]
+        history_tensor = torch.tensor([padded], dtype=torch.long, device=device)
+        user_tensor = torch.tensor([u], dtype=torch.long, device=device)
+
+        self._model.eval()
+        with torch.no_grad():
+            u_vec = self._model["user"](history_tensor, user_tensor).cpu().numpy().ravel()
+
+        recs = self._vector_store.search(u_vec, k=k * 2)
+        if exclude_seen:
+            seen = self._user_seen.get(user_id, set())
+            recs = [r for r in recs if r.item_id not in seen]
+        return recs[:k]
+
+    def get_user_vector(self, user_id: int | str) -> np.ndarray | None:
+        if user_id not in self._u_idx or self._model is None:
+            return None
+        device = torch.device(self.device)
+        u = self._u_idx[user_id]
+        hist = self._user_history.get(u, [])
+        if len(hist) > self.max_history:
+            hist = hist[-self.max_history:]
+        padded = [0] * (self.max_history - len(hist)) + [h + 1 for h in hist]
+        history_tensor = torch.tensor([padded], dtype=torch.long, device=device)
+        user_tensor = torch.tensor([u], dtype=torch.long, device=device)
+        self._model.eval()
+        with torch.no_grad():
+            return self._model["user"](history_tensor, user_tensor).cpu().numpy().ravel()
+
+    def get_item_vector(self, item_id: int | str) -> np.ndarray | None:
+        if self._model is None or self._item_ids is None or item_id not in self._i_idx:
+            return None
+        device = torch.device(self.device)
+        idx = self._i_idx[item_id]
+        ids = torch.tensor([idx], dtype=torch.long, device=device)
+        self._model.eval()
+        with torch.no_grad():
+            if self._item_genres_np is None:
+                return self._model["item"](ids).cpu().numpy().ravel()
+            glist = self._item_genres_np[idx]
+            g_ids = torch.tensor(glist or [0], dtype=torch.long, device=device)
+            g_off = torch.tensor([0], dtype=torch.long, device=device)
+            return self._model["item"](ids, g_ids, g_off).cpu().numpy().ravel()

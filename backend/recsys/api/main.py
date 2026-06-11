@@ -13,7 +13,10 @@ from pydantic import BaseModel
 
 logger = structlog.get_logger()
 
+from ..ab_testing import ABTestFramework
 from ..evaluation.runner import evaluate_models
+from ..models.cold_start import ColdStartRecommender
+from ..monitoring import DriftDetector
 from ..registry import (
     DOMAINS,
     DomainBundle,
@@ -24,6 +27,8 @@ from ..registry import (
 )
 
 EVAL_CACHE_DIR = Path("data/artifacts/eval")
+drift_detector = DriftDetector()
+ab_framework = ABTestFramework()
 
 app = FastAPI(title="RecSys Lab", version="0.1.0")
 app.add_middleware(
@@ -238,6 +243,97 @@ def recommend(
         for r in recs
     ]
     return RecResponse(domain=domain, algo=algo, user_id=uid, items=items)
+
+
+@app.get("/search/{domain}")
+def search_items(domain: str, q: str = Query(..., min_length=1), k: int = Query(10, ge=1, le=50)) -> list[ItemSummary]:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    b = _bundle(domain)
+    cs = ColdStartRecommender(
+        text_cols=["title", "genres"] if domain == "movies" else ["title", "abstract", "category"],
+    )
+    try:
+        cs.fit(b.interactions, items=b.items, users=b.users)
+    except Exception:
+        cs.fit(b.interactions, items=b.items)
+    recs = cs.recommend_from_text(q, k=k)
+    lookup = _item_lookup_cached(domain)
+    return [
+        ItemSummary(
+            item_id=r.item_id,
+            title=lookup.get(r.item_id, {}).get("title"),
+            metadata=lookup.get(r.item_id, {}).get("metadata"),
+        )
+        for r in recs
+    ]
+
+
+@app.get("/monitor/drift/{domain}")
+def get_drift_report(domain: str) -> dict:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    b = _bundle(domain)
+    report = drift_detector.check_data_drift(
+        reference=b.interactions,
+        current=b.interactions.sample(frac=0.3, random_state=42),
+        domain=domain,
+    )
+    return report
+
+
+@app.get("/monitor/drift/{domain}/{model_name}")
+def get_model_drift(domain: str, model_name: str) -> dict:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    b = _bundle(domain)
+    if model_name not in b.models:
+        raise HTTPException(status_code=404, detail=f"unknown model '{model_name}'")
+    report = drift_detector.check_model_drift(
+        model=b.models[model_name],
+        reference_interactions=b.interactions,
+        current_interactions=b.interactions.sample(frac=0.3, random_state=42),
+        domain=domain,
+        model_name=model_name,
+    )
+    return report
+
+
+@app.get("/ab-test/{domain}/{user_id}")
+def ab_test(
+    domain: str,
+    user_id: str,
+    model_a: str = Query("popularity"),
+    model_b: str = Query("als"),
+    k: int = Query(10, ge=1, le=50),
+) -> dict:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    b = _bundle(domain)
+    if model_a not in b.models or model_b not in b.models:
+        raise HTTPException(status_code=404, detail="unknown model")
+    variant = ab_framework.assign_variant(user_id, model_a, model_b)
+    chosen = model_a if variant == model_a else model_b
+    uid: int | str
+    try:
+        uid = int(user_id)
+    except ValueError:
+        uid = user_id
+    recs = b.models[chosen].recommend(uid, k=k, exclude_seen=True)
+    lookup = _item_lookup_cached(domain)
+    return {
+        "domain": domain,
+        "user_id": user_id,
+        "variant": variant,
+        "items": [
+            {
+                "item_id": r.item_id,
+                "score": r.score,
+                "title": lookup.get(r.item_id, {}).get("title"),
+            }
+            for r in recs
+        ],
+    }
 
 
 @app.get("/evaluate/{domain}")
