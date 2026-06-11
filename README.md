@@ -331,7 +331,7 @@ cd frontend && npm install && cd ..
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
 
-Copyright © 2024 [Aayush](https://github.com/Aayush7352)
+Copyright © 2026 [Aayush](https://github.com/Aayush7352)
 
 ---
 
