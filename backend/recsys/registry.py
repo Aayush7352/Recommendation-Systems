@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import pickle
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
+
+import structlog
+
+from .tracking import ExperimentTracker
+
+logger = structlog.get_logger()
 
 from .data.mind import MindData, load_mind_small
 from .data.movielens import MovieLensData, load_movielens_100k
@@ -101,12 +108,19 @@ def load_news_bundle(max_users: int = 5000) -> DomainBundle:
     )
 
 
-def train_domain(bundle: DomainBundle) -> DomainBundle:
+def train_domain(bundle: DomainBundle, tracker: ExperimentTracker | None = None) -> DomainBundle:
     builders = {"movies": _build_movie_models, "news": _build_news_models}
     models = builders[bundle.domain]()
+    logger.info("training_started", domain=bundle.domain, n_models=len(models))
     for name, m in models.items():
+        t0 = time.time()
+        params = m.get_params() if hasattr(m, "get_params") else {}
         m.fit(bundle.interactions, items=bundle.items, users=bundle.users)
+        elapsed = time.time() - t0
         bundle.models[name] = m
+        logger.info("model_trained", domain=bundle.domain, model=name, elapsed_seconds=round(elapsed, 2))
+        if tracker:
+            tracker.log_training(bundle.domain, name, m, params={**params, "elapsed_seconds": elapsed})
     return bundle
 
 

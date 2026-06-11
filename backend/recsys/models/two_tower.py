@@ -163,7 +163,8 @@ class TwoTowerRecommender(BaseRecommender):
 
     def _build_history(self, interactions: pd.DataFrame) -> None:
         if "timestamp" in interactions.columns:
-            sorted_df = interactions.sort_values("timestamp")
+            ts = interactions["timestamp"].values.astype("int64")
+            sorted_df = interactions.iloc[ts.argsort(kind="mergesort")]
         else:
             sorted_df = interactions
         history: dict = {}

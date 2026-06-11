@@ -26,7 +26,7 @@ export default async function DomainOverview({
       <ErrorState
         title="Could not load domain info"
         description={infoErr ?? "Unknown error"}
-        hint="Ensure the FastAPI backend is running on http://localhost:8000 and that this domain has been trained."
+        hint="Ensure the FastAPI backend is running on http://localhost:8080 and that this domain has been trained."
       />
     );
   }

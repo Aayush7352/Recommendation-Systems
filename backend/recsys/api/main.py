@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import time
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+import structlog
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+logger = structlog.get_logger()
 
 from ..evaluation.runner import evaluate_models
 from ..registry import (
@@ -27,6 +32,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    t0 = time.time()
+    response = await call_next(request)
+    elapsed = time.time() - t0
+    logger.info(
+        "request",
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        elapsed_ms=round(elapsed * 1000),
+    )
+    return response
 
 
 class RecItem(BaseModel):
@@ -137,7 +157,8 @@ def user_history(
         uid = user_id
     hist = b.interactions[b.interactions["user_id"] == uid]
     if "timestamp" in hist.columns:
-        hist = hist.sort_values("timestamp", ascending=False)
+        ts = hist["timestamp"].values.astype("int64")
+        hist = hist.iloc[ts.argsort()[::-1]]
     hist = hist.head(limit)
     lookup = _item_lookup_cached(domain)
     out: list[ItemSummary] = []
