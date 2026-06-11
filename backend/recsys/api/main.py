@@ -13,10 +13,17 @@ from pydantic import BaseModel
 
 logger = structlog.get_logger()
 
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
 from ..ab_testing import ABTestFramework
 from ..evaluation.runner import evaluate_models
+from ..explain import Explainer
 from ..models.cold_start import ColdStartRecommender
 from ..monitoring import DriftDetector
+
+REQUEST_COUNT = Counter("recsys_requests_total", "Total requests", ["method", "path", "status"])
+REQUEST_LATENCY = Histogram("recsys_request_latency_seconds", "Request latency", ["method", "path"])
+RECOMMENDATIONS_COUNT = Counter("recsys_recommendations_total", "Total recommendations served", ["domain", "algo"])
 from ..registry import (
     DOMAINS,
     DomainBundle,
@@ -29,6 +36,7 @@ from ..registry import (
 EVAL_CACHE_DIR = Path("data/artifacts/eval")
 drift_detector = DriftDetector()
 ab_framework = ABTestFramework()
+explainer = Explainer()
 
 app = FastAPI(title="RecSys Lab", version="0.1.0")
 app.add_middleware(
@@ -44,6 +52,8 @@ async def log_requests(request: Request, call_next):
     t0 = time.time()
     response = await call_next(request)
     elapsed = time.time() - t0
+    REQUEST_COUNT.labels(method=request.method, path=request.url.path, status=response.status_code).inc()
+    REQUEST_LATENCY.labels(method=request.method, path=request.url.path).observe(elapsed)
     logger.info(
         "request",
         method=request.method,
@@ -52,6 +62,11 @@ async def log_requests(request: Request, call_next):
         elapsed_ms=round(elapsed * 1000),
     )
     return response
+
+
+@app.get("/metrics")
+def metrics():
+    return JSONResponse(content=generate_latest().decode(), media_type=CONTENT_TYPE_LATEST)
 
 
 class RecItem(BaseModel):
@@ -297,6 +312,95 @@ def get_model_drift(domain: str, model_name: str) -> dict:
         model_name=model_name,
     )
     return report
+
+
+@app.get("/recommend/{domain}/session/{user_id}")
+def recommend_session(
+    domain: str,
+    user_id: str,
+    session_items: str = Query(..., description="Comma-separated item IDs from current session"),
+    k: int = Query(10, ge=1, le=50),
+) -> dict:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    b = _bundle(domain)
+    model = b.models.get("gru4rec")
+    if model is None:
+        raise HTTPException(status_code=503, detail="GRU4Rec model not trained")
+    items = [s.strip() for s in session_items.split(",")]
+    uid: int | str
+    try:
+        uid = int(user_id)
+    except ValueError:
+        uid = user_id
+    try:
+        uid_int = int(uid) if isinstance(uid, str) and uid.isdigit() else uid
+        recs = model.recommend_from_session(items, k=k)
+    except Exception:
+        recs = []
+    lookup = _item_lookup_cached(domain)
+    return {
+        "domain": domain,
+        "user_id": uid,
+        "session_items": items,
+        "items": [
+            {"item_id": r.item_id, "score": r.score, "title": lookup.get(r.item_id, {}).get("title")}
+            for r in recs
+        ],
+    }
+
+
+@app.get("/explain/{domain}/{algo}/{user_id}")
+def explain_recommendation(
+    domain: str,
+    algo: str,
+    user_id: str,
+    item_id: str = Query(..., description="Item ID to explain"),
+) -> dict:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    b = _bundle(domain)
+    if algo not in b.models:
+        raise HTTPException(status_code=404, detail=f"unknown algo '{algo}'")
+    uid: int | str
+    try:
+        uid = int(user_id)
+    except ValueError:
+        uid = user_id
+    try:
+        iid = int(item_id)
+    except ValueError:
+        iid = item_id
+    lookup = _item_lookup_cached(domain)
+    recs = b.models[algo].recommend(uid, k=50, exclude_seen=True)
+    rec = next((r for r in recs if r.item_id == iid), None)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Item not in recommendations")
+    explanation = explainer.explain_recommendation(
+        b.models[algo], uid, rec, b.interactions, b.items
+    )
+    explanation["title"] = lookup.get(iid, {}).get("title")
+    return explanation
+
+
+@app.get("/explain/{domain}/{algo}/{user_id}/features")
+def feature_importance(
+    domain: str,
+    algo: str,
+    user_id: str,
+) -> dict:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    b = _bundle(domain)
+    if algo not in b.models:
+        raise HTTPException(status_code=404, detail=f"unknown algo '{algo}'")
+    uid: int | str
+    try:
+        uid = int(user_id)
+    except ValueError:
+        uid = user_id
+    importance = explainer.feature_importance(b.models[algo], uid, b.interactions, b.items)
+    return {"domain": domain, "algo": algo, "user_id": uid, "feature_importance": importance}
 
 
 @app.get("/ab-test/{domain}/{user_id}")

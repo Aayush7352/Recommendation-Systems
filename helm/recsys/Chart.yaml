@@ -1,0 +1,20 @@
+apiVersion: v2
+name: recsys
+description: Production-grade recommendation systems platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+icon: https://raw.githubusercontent.com/Aayush7352/Recommendation-Systems/main/frontend/public/favicon.ico
+keywords:
+  - recommendation-system
+  - machine-learning
+  - mlops
+  - fastapi
+  - qdrant
+home: https://github.com/Aayush7352/Recommendation-Systems
+sources:
+  - https://github.com/Aayush7352/Recommendation-Systems
+maintainers:
+  - name: Aayush
+    email: aayush@example.com
+    url: https://github.com/Aayush7352

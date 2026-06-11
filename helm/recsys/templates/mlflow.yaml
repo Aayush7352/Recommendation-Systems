@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "recsys.fullname" . }}-mlflow
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: mlflow
+    {{- include "recsys.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: mlflow
+      {{- include "recsys.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: mlflow
+        {{- include "recsys.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: mlflow
+          image: {{ .Values.mlflow.image }}
+          ports:
+            - containerPort: {{ .Values.mlflow.port }}
+              name: http
+          command:
+            - mlflow
+            - server
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "{{ .Values.mlflow.port }}"
+            - --backend-store-uri
+            - sqlite:///mlflow/mlflow.db
+            - --artifacts-destination
+            - /mlflow/artifacts
+          volumeMounts:
+            - name: mlflow-storage
+              mountPath: /mlflow
+      volumes:
+        - name: mlflow-storage
+          persistentVolumeClaim:
+            claimName: {{ include "recsys.fullname" . }}-mlflow
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "recsys.fullname" . }}-mlflow
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: mlflow
+    {{- include "recsys.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/component: mlflow
+    {{- include "recsys.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.mlflow.port }}
+      targetPort: {{ .Values.mlflow.port }}
+      name: http
+  type: ClusterIP

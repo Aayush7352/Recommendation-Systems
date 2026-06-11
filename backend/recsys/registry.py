@@ -20,6 +20,7 @@ from .models.collaborative import ALSRecommender, ItemKNNRecommender
 from .models.content_based import ContentBasedRecommender
 from .models.hybrid import HybridRecommender
 from .models.cold_start import ColdStartRecommender
+from .models.gru4rec import GRU4RecRecommender
 from .models.popularity import PopularityRecommender
 from .models.two_tower import TwoTowerRecommender
 

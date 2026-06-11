@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "recsys.fullname" . }}-qdrant
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: qdrant
+    {{- include "recsys.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "recsys.fullname" . }}-qdrant
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: qdrant
+      {{- include "recsys.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: qdrant
+        {{- include "recsys.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: qdrant
+          image: {{ .Values.qdrant.image }}
+          ports:
+            - containerPort: {{ .Values.qdrant.port }}
+              name: http
+            - containerPort: {{ .Values.qdrant.grpcPort }}
+              name: grpc
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.qdrant.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "recsys.fullname" . }}-qdrant
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: qdrant
+    {{- include "recsys.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/component: qdrant
+    {{- include "recsys.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.qdrant.port }}
+      targetPort: {{ .Values.qdrant.port }}
+      name: http
+    - port: {{ .Values.qdrant.grpcPort }}
+      targetPort: {{ .Values.qdrant.grpcPort }}
+      name: grpc
+  clusterIP: None
