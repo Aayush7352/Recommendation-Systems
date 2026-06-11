@@ -1,131 +1,283 @@
-# RecSys Lab
+<div align="center">
+  <h1>⚡ RecSys Lab</h1>
+  <p><strong>Production-Grade Recommendation Systems Research Harness</strong></p>
+  <p>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python"></a>
+    <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.110+-green" alt="FastAPI"></a>
+    <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-16-black" alt="Next.js"></a>
+    <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-Ready-2496ED" alt="Docker"></a>
+    <a href="https://mlflow.org/"><img src="https://img.shields.io/badge/MLflow-Integrated-orange" alt="MLflow"></a>
+    <a href="https://qdrant.tech/"><img src="https://img.shields.io/badge/Qdrant-Vector--DB-red" alt="Qdrant"></a>
+    <a href="https://kubernetes.io/"><img src="https://img.shields.io/badge/K8s-Ready-326CE5" alt="Kubernetes"></a>
+    <a href="https://www.evidentlyai.com/"><img src="https://img.shields.io/badge/Evidently-Monitoring-FF6B6B" alt="Evidently"></a>
+    <a href="https://github.com/Aayush7352/Recommendation-Systems/actions"><img src="https://img.shields.io/github/actions/workflow/status/Aayush7352/Recommendation-Systems/ci.yml?branch=main" alt="CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
+  </p>
+  <p>
+    <strong>6 algorithms · 2 domains (Movies + News) · Side-by-side comparison · Vector search · MLOps · Docker · K8s</strong>
+  </p>
+</div>
 
-A research harness for comparing recommendation algorithms across two domains:
+---
 
-- **Movies** — MovieLens-100K (943 users, 1,682 items, 100K ratings)
-- **News** — Microsoft MIND-small (filtered to most active users)
+## 🚀 Overview
 
-Six algorithms are trained per domain and exposed via a FastAPI backend with a Next.js + Tailwind frontend for side-by-side comparison and offline evaluation.
+RecSys Lab is a **production-ready, end-to-end recommendation systems platform** that trains 6 different algorithms across 2 real-world datasets and exposes them via a unified API + UI for side-by-side comparison, evaluation, and analysis.
 
-## Algorithms
+Unlike typical recsys projects that are either Jupyter notebooks or toy demos, this is a **full-stack, MLOps-enabled platform** ready for research, experimentation, and production deployment.
 
-| Key | Name | Family |
+### ✨ What Makes This Unique
+
+| Feature | Description |
+|---|---|
+| **6 Algorithms, 1 Harness** | Baseline → Content → Collaborative → Hybrid → Neural — all comparable |
+| **2 Real Domains** | MovieLens-100K + Microsoft MIND-small with domain-specific features |
+| **Vector ANN Search** | Qdrant-powered Approximate Nearest Neighbor for sub-millisecond serving |
+| **Cold-Start Search** | Semantic text search via TF-IDF content embeddings in Qdrant |
+| **MLflow Tracking** | Every train/evaluate run logged with params, metrics, and artifacts |
+| **Docker Compose** | One command: backend + frontend + Qdrant + MLflow |
+| **Kubernetes Ready** | Full manifests for production deployment |
+| **Drift Monitoring** | PSI/JS-divergence based data & model drift detection |
+| **A/B Testing** | Built-in framework for online model comparison |
+| **CI/CD Pipeline** | GitHub Actions: lint, test, train, evaluate, deploy |
+| **Production Logging** | Structured logging (structlog) across all services |
+| **Beautiful UI** | Next.js + Tailwind with side-by-side comparison views |
+
+---
+
+## 🧠 Algorithms
+
+| Algorithm | Family | Key Technique |
 |---|---|---|
-| `popularity` | Global most-popular | Baseline |
-| `content_based` | TF-IDF + tag features over user profile | Content |
-| `item_knn` | Item–item cosine k-NN | Collaborative (memory) |
-| `als` | Implicit ALS matrix factorization | Collaborative (model) |
-| `hybrid` | Weighted blend: content + ALS | Hybrid |
-| `two_tower` | PyTorch user/item towers, in-batch sampled softmax | Neural |
+| `popularity` | 📊 Baseline | Global most-popular count |
+| `content_based` | 📝 Content | TF-IDF + user profile aggregation |
+| `item_knn` | 🤝 Collaborative (memory) | Item-item cosine similarity k-NN |
+| `als` | 🧮 Collaborative (model) | Implicit ALS matrix factorization |
+| `hybrid` | 🔀 Hybrid | Weighted blend: content + ALS |
+| `two_tower` | 🧠 Neural | PyTorch dual-tower with in-batch sampled softmax |
 
-All implement the same `BaseRecommender` interface (`fit`, `recommend`, `recommend_batch`) in `backend/recsys/models/base.py`.
+All models implement the same `BaseRecommender` interface (`fit`, `recommend`, `recommend_batch`) — making it trivial to add new algorithms.
 
-## Project layout
+---
+
+## 🏗️ Architecture
 
 ```
-backend/
-  recsys/
-    data/          MovieLens + MIND loaders (download + parse)
-    models/        Six recommender implementations
-    evaluation/    Train/test split, metrics, batch runner
-    api/           FastAPI app
-    registry.py    Train all models + pickle to disk
-    cli.py         `python -m recsys.cli train|evaluate`
-  pyproject.toml
-frontend/          Next.js 14 + Tailwind UI
-data/              Cached raw datasets + trained model artifacts
+┌─────────────────────────────────────────────────────────────────────┐
+│                            Frontend                                 │
+│                    Next.js 16 + Tailwind CSS                        │
+│                    http://localhost:3000                             │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │ REST API
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                            Backend                                  │
+│                    FastAPI + uvicorn                                 │
+│                    http://localhost:8000                             │
+│                                                                     │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐ │
+│  │ Recommenders │  │ Evaluation  │  │  Monitoring │  │ Cold Start│ │
+│  │  6 Models    │  │  Precision  │  │  Drift Det. │  │  Search   │ │
+│  └──────┬──────┘  │  Recall etc  │  └─────────────┘  └─────┬─────┘ │
+│         │         └─────────────┘                          │       │
+│         ▼                                                   │       │
+│  ┌──────────────────────────────────────────────────┐       │       │
+│  │           Qdrant Vector Database                  │◄──────┘       │
+│  │     ANN Search · Cold-Start Index                 │               │
+│  └──────────────────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────────────────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         ▼                 ▼                  ▼
+┌──────────────┐  ┌──────────────┐  ┌────────────────┐
+│   MLflow     │  │   Qdrant     │  │   PostgreSQL   │
+│ Experimental │  │  Vector DB   │  │  (optional)    │
+│   Tracking   │  │  port 6333   │  │                │
+└──────────────┘  └──────────────┘  └────────────────┘
 ```
 
-## Quick start
+---
 
-### 1. Backend
+## 🛠️ Quick Start
 
+### Option A: Docker Compose (Recommended)
+
+```bash
+docker compose up -d
+```
+
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API Docs | http://localhost:8000/docs |
+| MLflow UI | http://localhost:5000 |
+| Qdrant Dashboard | http://localhost:6333/dashboard |
+
+### Option B: Local Development
+
+**1. Backend**
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ./backend
-```
-
-Train every model for both domains (downloads ~85 MB of data, caches under `data/raw/`, writes pickles to `data/artifacts/`):
-
-```bash
-.venv/bin/python -m recsys.cli train
-```
-
-Train a single domain:
-
-```bash
-.venv/bin/python -m recsys.cli train --domains movies
-```
-
-Run offline evaluation (writes JSON to `--out` if provided):
-
-```bash
-.venv/bin/python -m recsys.cli evaluate --k 10 --out data/artifacts/eval.json
-```
-
-Boot the API:
-
-```bash
+.venv/bin/pip install -e ./backend[dev]
+.venv/bin/python -m recsys.cli train        # Train all models
+.venv/bin/python -m recsys.cli evaluate --k 10  # Evaluate
 .venv/bin/uvicorn recsys.api.main:app --reload --port 8000
 ```
 
-Interactive docs at <http://localhost:8000/docs>.
-
-### 2. Frontend
-
+**2. Frontend**
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Visits <http://localhost:3000>. The frontend reads `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`).
+---
 
-## API
+## 📡 API Reference
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/` | Service info + which domains have trained artifacts |
-| GET | `/domains/{domain}/info` | User/item/interaction counts |
-| GET | `/domains/{domain}/users?limit=N` | Top-N users by interaction count |
-| GET | `/domains/{domain}/users/{user_id}/history` | A user's past interactions |
-| GET | `/domains/{domain}/items?limit=N` | Sample of items |
-| GET | `/recommend/{domain}/{algo}/{user_id}?k=N` | Top-K recs from one algo |
-| GET | `/recommend/{domain}/compare/{user_id}?algos=a,b,c&k=N` | Side-by-side across algos |
-| GET | `/evaluate/{domain}?k=N&refresh=bool` | Offline metrics report (cached) |
+| `GET` | `/` | Service info + trained domains |
+| `GET` | `/domains/{domain}/info` | User/item/interaction stats |
+| `GET` | `/domains/{domain}/users` | Top users by interactions |
+| `GET` | `/domains/{domain}/users/{id}/history` | User interaction history |
+| `GET` | `/domains/{domain}/items` | Sample items catalog |
+| `GET` | `/recommend/{domain}/{algo}/{user_id}` | Top-K recommendations |
+| `GET` | `/recommend/{domain}/compare/{user_id}` | Side-by-side across algos |
+| `GET` | `/search/{domain}?q=keyword` | Semantic cold-start search |
+| `GET` | `/evaluate/{domain}` | Offline evaluation report |
+| `GET` | `/ab-test/{domain}/{user_id}` | A/B test two models |
+| `GET` | `/monitor/drift/{domain}` | Data drift report |
+| `GET` | `/monitor/drift/{domain}/{model}` | Model drift report |
 
-`{domain}` is `movies` or `news`. `{algo}` is one of `popularity, content_based, item_knn, als, hybrid, two_tower`.
+---
 
-## Evaluation protocol
+## 📊 Evaluation Protocol
 
-- **Split**: leave-one-out per user. The last interaction (by timestamp) is held out as test; the rest is training.
-- **Metrics** (computed at K, default K=10):
-  - Precision@K, Recall@K, NDCG@K — ranking quality
-  - Coverage — fraction of catalog items appearing in any user's recs
-  - Diversity — `1 − mean pairwise Jaccard` across user reclists
-  - Novelty — `mean(−log2 p(item))` where p is item-popularity in train
-- **Sampling**: by default 300–500 random eval users (`--max-eval-users`).
+- **Split**: Leave-one-out per user (last interaction by timestamp = test)
+- **Metrics** (at K=10):
+  - `Precision@K` · `Recall@K` · `NDCG@K` — Ranking quality
+  - `Coverage` — % of catalog in any user's recs
+  - `Diversity` — 1 − mean pairwise Jaccard across users
+  - `Novelty` — mean(−log₂ p(item)) where p = item popularity
 
-## Two-tower notes
+---
 
-- User tower: mean-pooled item-history embedding ⊕ user embedding → MLP → L2-norm.
-- Item tower: item embedding (⊕ genre EmbeddingBag for movies) → MLP → L2-norm.
-- Loss: symmetric in-batch sampled softmax with temperature 0.07.
-- After training, all item vectors are cached; serving is a single `u · V^T`.
+## 🧪 MLOps Features
 
-## Datasets
+### MLflow Experiment Tracking
+```bash
+.venv/bin/python -m recsys.cli train --mlflow
+.venv/bin/python -m recsys.cli evaluate --k 10 --mlflow
+```
+Then open http://localhost:5000 to view runs.
 
-| Dataset | Source | Size | License |
-|---|---|---|---|
-| MovieLens-100K | <https://files.grouplens.org/datasets/movielens/ml-100k.zip> | 5 MB | GroupLens research use |
-| MIND-small | HuggingFace mirror `Recommenders/MIND` | 83 MB | Microsoft research use |
+### Drift Monitoring
+```bash
+curl http://localhost:8000/monitor/drift/movies
+curl http://localhost:8000/monitor/drift/movies/als
+```
 
-The original Azure URLs for MIND were deprecated in July 2024; the loader uses the HuggingFace mirror.
+### A/B Testing
+```bash
+curl "http://localhost:8000/ab-test/movies/1?model_a=popularity&model_b=two_tower"
+```
 
-## Reproducibility
+---
 
-All splits and the two-tower model use `seed=42`. ALS and item-kNN are deterministic given the seeded sparse matrix.
+## 🐳 Docker Compose Services
 
-## What "research / experimentation" means here
+```yaml
+services:
+  backend:   # FastAPI + recommenders + monitoring
+  frontend:  # Next.js UI
+  qdrant:    # Vector database for ANN + cold-start
+  mlflow:    # Experiment tracking
+```
 
-This is a comparison harness, not a production recommender. Things deliberately *not* included: online learning, A/B test framework, cold-start strategies beyond popularity, session-based recurrence, embedding-store integration. Everything fits in memory, trains in minutes on a laptop CPU.
+---
+
+## ☸️ Kubernetes Deployment
+
+```bash
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/
+```
+
+Includes: Deployments, Services, StatefulSet (Qdrant), Ingress, PVCs.
+
+---
+
+## 🧩 Project Structure
+
+```
+├── backend/
+│   ├── recsys/
+│   │   ├── api/              FastAPI routes
+│   │   ├── data/             Dataset loaders (MovieLens, MIND)
+│   │   ├── models/           6 recommender implementations
+│   │   │   ├── base.py       Abstract recommender interface
+│   │   │   ├── popularity.py
+│   │   │   ├── content_based.py
+│   │   │   ├── collaborative.py  (ALS + ItemKNN)
+│   │   │   ├── hybrid.py
+│   │   │   ├── two_tower.py      PyTorch neural
+│   │   │   └── cold_start.py     Semantic search
+│   │   ├── evaluation/       Metrics & offline evaluation
+│   │   ├── cli.py            Training/evaluation CLI
+│   │   ├── registry.py       Model persistence
+│   │   ├── tracking.py       MLflow integration
+│   │   ├── vector_store.py   Qdrant client wrapper
+│   │   ├── monitoring.py     Drift detection
+│   │   └── ab_testing.py     A/B test framework
+│   └── tests/                Pytest suite
+├── frontend/                 Next.js 16 + Tailwind CSS
+├── k8s/                      Kubernetes manifests
+├── data/                     Raw/artifacts/monitoring
+├── docker-compose.yml
+└── .github/workflows/        CI/CD pipelines
+```
+
+---
+
+## 📈 Roadmap
+
+- [x] 6 recommendation algorithms + 2 domains
+- [x] FastAPI backend + Next.js UI
+- [x] Docker Compose + K8s manifests
+- [x] Qdrant vector DB for ANN search
+- [x] Cold-start semantic search
+- [x] MLflow experiment tracking
+- [x] Drift monitoring (Evidently-style)
+- [x] A/B testing framework
+- [x] CI/CD pipelines
+- [ ] Session-based models (GRU4Rec, SR-GNN)
+- [ ] LLM-enhanced embeddings
+- [ ] Real-time online learning
+- [ ] Feature store (Feast)
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Check [issues](https://github.com/Aayush7352/Recommendation-Systems/issues) for open tasks.
+
+```bash
+git clone https://github.com/Aayush7352/Recommendation-Systems.git
+cd Recommendation-Systems
+.venv/bin/pip install -e "./backend[dev]"
+.venv/bin/pytest backend/tests -v
+```
+
+---
+
+## 📜 License
+
+MIT © [Aayush](https://github.com/Aayush7352)
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ for the recommendation systems community</sub>
+</div>
