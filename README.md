@@ -261,12 +261,28 @@ Includes: Deployments, Services, StatefulSet (Qdrant), Ingress, PVCs.
 
 ## 🤝 Contributing
 
-Contributions welcome! Check [issues](https://github.com/Aayush7352/Recommendation-Systems/issues) for open tasks.
+We welcome contributions from the community! Whether you're fixing a bug, adding a new algorithm, or improving documentation — every contribution counts.
+
+Please read our [Contributing Guide](CONTRIBUTING.md) before submitting changes.
+
+### Quick Links
+
+| Resource | Link |
+|---|---|
+| Contribution Guidelines | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Code of Conduct | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+| Security Policy | [SECURITY.md](SECURITY.md) |
+| Bug Reports | [Create Issue](https://github.com/Aayush7352/Recommendation-Systems/issues/new/choose) |
+| Feature Requests | [Create Issue](https://github.com/Aayush7352/Recommendation-Systems/issues/new/choose) |
+
+### Development Setup
 
 ```bash
 git clone https://github.com/Aayush7352/Recommendation-Systems.git
 cd Recommendation-Systems
+python3 -m venv .venv
 .venv/bin/pip install -e "./backend[dev]"
+cd frontend && npm install && cd ..
 .venv/bin/pytest backend/tests -v
 ```
 
@@ -274,10 +290,32 @@ cd Recommendation-Systems
 
 ## 📜 License
 
-MIT © [Aayush](https://github.com/Aayush7352)
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+Copyright © 2024 [Aayush](https://github.com/Aayush7352)
+
+---
+
+## 🙏 Acknowledgments
+
+- [MovieLens](https://grouplens.org/datasets/movielens/) dataset by GroupLens Research
+- [MIND](https://msnews.github.io/) dataset by Microsoft Research
+- [FastAPI](https://fastapi.tiangolo.com/), [Next.js](https://nextjs.org/), [Qdrant](https://qdrant.tech/), [MLflow](https://mlflow.org/)
 
 ---
 
 <div align="center">
+  <a href="https://github.com/Aayush7352/Recommendation-Systems/stargazers">
+    <img src="https://img.shields.io/github/stars/Aayush7352/Recommendation-Systems?style=social" alt="Stars">
+  </a>
+  <a href="https://github.com/Aayush7352/Recommendation-Systems/forks">
+    <img src="https://img.shields.io/github/forks/Aayush7352/Recommendation-Systems?style=social" alt="Forks">
+  </a>
+  <a href="https://github.com/Aayush7352/Recommendation-Systems/issues">
+    <img src="https://img.shields.io/github/issues/Aayush7352/Recommendation-Systems" alt="Issues">
+  </a>
+  <br><br>
   <sub>Built with ❤️ for the recommendation systems community</sub>
+  <br>
+  <sub>⭐ Star us on GitHub — it motivates us!</sub>
 </div>
