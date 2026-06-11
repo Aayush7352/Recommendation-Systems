@@ -1,0 +1,246 @@
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from ..evaluation.runner import evaluate_models
+from ..registry import (
+    DOMAINS,
+    DomainBundle,
+    _build_movie_models,
+    _build_news_models,
+    artifact_path,
+    load_bundle,
+)
+
+EVAL_CACHE_DIR = Path("data/artifacts/eval")
+
+app = FastAPI(title="RecSys Lab", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class RecItem(BaseModel):
+    item_id: int | str
+    score: float
+    title: str | None = None
+    metadata: dict | None = None
+
+
+class RecResponse(BaseModel):
+    domain: str
+    algo: str
+    user_id: int | str
+    items: list[RecItem]
+
+
+class UserSummary(BaseModel):
+    user_id: int | str
+    n_interactions: int
+
+
+class ItemSummary(BaseModel):
+    item_id: int | str
+    title: str | None = None
+    metadata: dict | None = None
+
+
+@lru_cache(maxsize=4)
+def _bundle(domain: str) -> DomainBundle:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    try:
+        return load_bundle(domain)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+def _item_lookup(bundle: DomainBundle) -> dict:
+    items = bundle.items
+    if bundle.domain == "movies":
+        return {
+            row["item_id"]: {
+                "title": row["title"],
+                "metadata": {
+                    "genres": row["genres"],
+                    "release_date": row.get("release_date"),
+                },
+            }
+            for _, row in items.iterrows()
+        }
+    return {
+        row["item_id"]: {
+            "title": row["title"],
+            "metadata": {
+                "category": row["category"],
+                "subcategory": row["subcategory"],
+                "abstract": row["abstract"][:200] if isinstance(row["abstract"], str) else "",
+            },
+        }
+        for _, row in items.iterrows()
+    }
+
+
+@lru_cache(maxsize=4)
+def _item_lookup_cached(domain: str) -> dict:
+    return _item_lookup(_bundle(domain))
+
+
+@app.get("/")
+def root() -> dict:
+    return {
+        "service": "recsys-lab",
+        "domains": list(DOMAINS),
+        "loaded": {d: artifact_path(d).exists() for d in DOMAINS},
+    }
+
+
+@app.get("/domains/{domain}/info")
+def domain_info(domain: str) -> dict:
+    b = _bundle(domain)
+    return {
+        "domain": domain,
+        "n_users": int(b.interactions["user_id"].nunique()),
+        "n_items": int(b.items["item_id"].nunique()),
+        "n_interactions": int(len(b.interactions)),
+        "algos": list(b.models.keys()),
+    }
+
+
+@app.get("/domains/{domain}/users", response_model=list[UserSummary])
+def list_users(domain: str, limit: int = Query(50, ge=1, le=500)) -> list[UserSummary]:
+    b = _bundle(domain)
+    counts = b.interactions.groupby("user_id").size().sort_values(ascending=False).head(limit)
+    return [UserSummary(user_id=u, n_interactions=int(c)) for u, c in counts.items()]
+
+
+@app.get("/domains/{domain}/users/{user_id}/history", response_model=list[ItemSummary])
+def user_history(
+    domain: str,
+    user_id: str,
+    limit: int = Query(20, ge=1, le=100),
+) -> list[ItemSummary]:
+    b = _bundle(domain)
+    uid: int | str
+    try:
+        uid = int(user_id)
+    except ValueError:
+        uid = user_id
+    hist = b.interactions[b.interactions["user_id"] == uid]
+    if "timestamp" in hist.columns:
+        hist = hist.sort_values("timestamp", ascending=False)
+    hist = hist.head(limit)
+    lookup = _item_lookup_cached(domain)
+    out: list[ItemSummary] = []
+    for iid in hist["item_id"]:
+        meta = lookup.get(iid, {})
+        out.append(ItemSummary(item_id=iid, title=meta.get("title"), metadata=meta.get("metadata")))
+    return out
+
+
+@app.get("/domains/{domain}/items", response_model=list[ItemSummary])
+def list_items(domain: str, limit: int = Query(50, ge=1, le=500)) -> list[ItemSummary]:
+    b = _bundle(domain)
+    lookup = _item_lookup_cached(domain)
+    out: list[ItemSummary] = []
+    for iid in b.items["item_id"].head(limit):
+        meta = lookup.get(iid, {})
+        out.append(ItemSummary(item_id=iid, title=meta.get("title"), metadata=meta.get("metadata")))
+    return out
+
+
+@app.get("/recommend/{domain}/compare/{user_id}")
+def recommend_compare(
+    domain: str,
+    user_id: str,
+    algos: str | None = Query(None, description="Comma-separated algo names; default: all"),
+    k: int = Query(10, ge=1, le=50),
+) -> dict:
+    b = _bundle(domain)
+    selected = [a.strip() for a in algos.split(",")] if algos else list(b.models.keys())
+    uid: int | str
+    try:
+        uid = int(user_id)
+    except ValueError:
+        uid = user_id
+    lookup = _item_lookup_cached(domain)
+    out: dict = {"domain": domain, "user_id": uid, "k": k, "results": {}}
+    for a in selected:
+        if a not in b.models:
+            continue
+        recs = b.models[a].recommend(uid, k=k, exclude_seen=True)
+        out["results"][a] = [
+            {
+                "item_id": int(r.item_id) if not isinstance(r.item_id, (int, str)) else r.item_id,
+                "score": float(r.score),
+                "title": lookup.get(r.item_id, {}).get("title"),
+                "metadata": lookup.get(r.item_id, {}).get("metadata"),
+            }
+            for r in recs
+        ]
+    return out
+
+
+@app.get("/recommend/{domain}/{algo}/{user_id}", response_model=RecResponse)
+def recommend(
+    domain: str,
+    algo: str,
+    user_id: str,
+    k: int = Query(10, ge=1, le=100),
+) -> RecResponse:
+    b = _bundle(domain)
+    if algo not in b.models:
+        raise HTTPException(status_code=404, detail=f"unknown algo '{algo}' for {domain}")
+    uid: int | str
+    try:
+        uid = int(user_id)
+    except ValueError:
+        uid = user_id
+    recs = b.models[algo].recommend(uid, k=k, exclude_seen=True)
+    lookup = _item_lookup_cached(domain)
+    items = [
+        RecItem(
+            item_id=r.item_id,
+            score=r.score,
+            title=lookup.get(r.item_id, {}).get("title"),
+            metadata=lookup.get(r.item_id, {}).get("metadata"),
+        )
+        for r in recs
+    ]
+    return RecResponse(domain=domain, algo=algo, user_id=uid, items=items)
+
+
+@app.get("/evaluate/{domain}")
+def get_evaluation(domain: str, refresh: bool = False, k: int = 10) -> dict:
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=404, detail=f"unknown domain '{domain}'")
+    EVAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_file = EVAL_CACHE_DIR / f"{domain}_k{k}.json"
+    if cache_file.exists() and not refresh:
+        with cache_file.open() as f:
+            return json.load(f)
+
+    b = _bundle(domain)
+    builder = _build_movie_models if domain == "movies" else _build_news_models
+    result = evaluate_models(
+        domain=domain,
+        models=builder(),
+        interactions=b.interactions,
+        items=b.items,
+        users=b.users,
+        k=k,
+        max_eval_users=300,
+    )
+    payload = result.as_dict()
+    with cache_file.open("w") as f:
+        json.dump(payload, f, indent=2)
+    return payload
